@@ -37,6 +37,7 @@ jobs:
         python fetch_ip.py
         python add_subcategories_to_ip.py
         python fetch_mp.py
+        python fetch_ms.py
         python import_to_sheets.py
     
     - name: Upload output
