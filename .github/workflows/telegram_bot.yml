@@ -1,0 +1,33 @@
+name: Telegram Bot
+
+on:
+  workflow_dispatch:  # Ручной запуск для тестов
+
+jobs:
+  run-bot:
+    runs-on: ubuntu-latest
+    timeout-minutes: 15
+    
+    steps:
+    - uses: actions/checkout@v3
+    
+    - name: Set up Python
+      uses: actions/setup-python@v4
+      with:
+        python-version: '3.9'
+    
+    - name: Install dependencies
+      run: |
+        pip install -r requirements.txt
+    
+    - name: Run Telegram Bot
+      env:
+        TELEGRAM_BOT_TOKEN: ${{ secrets.TELEGRAM_BOT_TOKEN }}
+        TELEGRAM_ALLOWED_USERS: ${{ secrets.TELEGRAM_ALLOWED_USERS }}
+        MS_TOKEN: ${{ secrets.MS_TOKEN }}
+        MP_API_KEY: ${{ secrets.MP_API_KEY }}
+        IP_API_USER: ${{ secrets.IP_API_USER }}
+        IP_API_PASS: ${{ secrets.IP_API_PASS }}
+        GOOGLE_SHEET_ID: ${{ secrets.GOOGLE_SHEET_ID }}
+      run: |
+        timeout 600 python telegram_bot.py || true
