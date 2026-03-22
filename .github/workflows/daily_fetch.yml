@@ -18,7 +18,13 @@ jobs:
         python-version: '3.9'
     
     - name: Install dependencies
-      run: pip install -r requirements.txt
+      run: |
+        pip install -r requirements.txt
+    
+    - name: Create credentials.json
+      run: |
+        echo "${{ secrets.GOOGLE_CREDENTIALS_BASE64 }}" | base64 -d > credentials.json
+        chmod 600 credentials.json
     
     - name: Run fetch scripts
       env:
@@ -33,3 +39,10 @@ jobs:
         python add_subcategories_to_ip.py
         python fetch_mp.py
         python import_to_sheets.py
+    
+    - name: Upload output
+      uses: actions/upload-artifact@v3
+      with:
+        name: output-data
+        path: output/
+        retention-days: 7
