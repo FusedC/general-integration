@@ -1,12 +1,11 @@
 #!/usr/bin/env python3
 """
 Telegram Bot для управления проектами
-С прогресс-баром и кнопкой просмотра логов
+Без прогресс-бара + со справкой
 """
 import os
 import subprocess
 import logging
-import re
 from telegram import Update, InlineKeyboardButton, InlineKeyboardMarkup
 from telegram.ext import Application, CommandHandler, CallbackQueryHandler, ContextTypes
 
@@ -18,9 +17,6 @@ load_dotenv()
 BOT_TOKEN = os.getenv("TELEGRAM_BOT_TOKEN")
 ALLOWED_USERS = os.getenv("TELEGRAM_ALLOWED_USERS", "").split(",")
 
-# Глобальное хранилище логов (в памяти, очищается после просмотра)
-_last_operation_logs = {}
-
 logging.basicConfig(
     format='%(asctime)s - %(name)s - %(levelname)s - %(message)s',
     level=logging.INFO,
@@ -30,6 +26,9 @@ logging.basicConfig(
     ]
 )
 logger = logging.getLogger(__name__)
+
+# Глобальное хранилище логов
+_last_operation_logs = {}
 
 # ==================== ПРОЕКТЫ ====================
 PARSERS = {
@@ -41,50 +40,38 @@ PARSERS = {
 
 GENERAL_PATH = "/Users/samarasamara/GENERAL"
 
+# ==================== СПРАВКА ====================
+HELP_TEXT = """
+📖 *СПРАВОЧНИК ПО БОТУ*
+
+*🔄 GENERAL (основной проект):*
+• 📊 Запуск и запись МС — Выгружает товары и цены из МойСклад, записывает в Google Sheets (лист "МС - Товары")
+• 📈 Запуск и запись МП — Выгружает отчёты по конкурентам из MarketParser, записывает в Google Sheets (лист "МП - Отчёты")
+• 🗂️ Запуск и запись ПИ — Выгружает настройки кампаний из Проекта Интеграции + субкатегории, записывает в Google Sheets (лист "ПИ - Маппинг")
+• 🔄 Запуск и запись МС+МП+ПИ — Полная выгрузка всех трёх источников подряд
+
+*📦 Парсеры Telegram-каналов:*
+• 📦 AMAX — Парсинг прайса поставщика AMAX из ТГ-канала
+• 📦 BSA — Парсинг прайса поставщика BSA из ТГ-канала
+• 📦 MunStore — Парсинг прайса поставщика MunStore из ТГ-канала
+• 📦 SupportAirlines — Парсинг прайса поставщика SupportAirlines из ТГ-канала
+• 🚀 ВСЕ парсеры — Запускает все 4 парсера последовательно
+
+*ℹ️ Прочее:*
+• 📊 Статус — Показывает статус файлов выгрузки (когда обновлялись)
+• 📖 Справка — Эта справка
+
+*⏰ Автоматическая выгрузка:*
+Каждый день в 12:00 MSK GitHub Actions автоматически запускает выгрузку GENERAL (МС+МП+ПИ)
+"""
+
 
 def check_user_allowed(user_id: int) -> bool:
     return str(user_id) in ALLOWED_USERS
 
 
-def extract_progress(output: str) -> str:
-    """Извлекает прогресс из вывода скрипта (например, 'Прогресс: 150/397')"""
-    # Паттерны для поиска прогресса
-    patterns = [
-        r'Прогресс:\s*(\d+)/(\d+)',
-        r'Пачка #(\d+):.*✅ Загружено:\s*(\d+)',
-        r'Пакет (\d+)/(\d+):',
-        r'(\d+)\s*из\s*(\d+)',
-    ]
-    
-    for pattern in patterns:
-        matches = re.findall(pattern, output)
-        if matches:
-            last = matches[-1]
-            if len(last) == 2:
-                current, total = last
-                percent = min(100, int(float(current) / float(total) * 100)) if total.isdigit() and int(total) > 0 else 0
-                return f"▌" * (percent // 10) + "░" * (10 - percent // 10) + f" {percent}% ({current}/{total})"
-    
-    # Если нашли просто цифры (например, "✅ Загружено: 283")
-    loaded = re.findall(r'✅ Загружено:\s*(\d+)', output)
-    if loaded:
-        return f"⏳ Обработано: {loaded[-1]} записей"
-    
-    # Если нашли "Сохранено N строк"
-    saved = re.findall(r'✅ Сохранено (\d+) строк', output)
-    if saved:
-        return f"💾 Сохранено: {saved[-1]} строк"
-    
-    return ""
-
-
-def run_script_with_progress(script: str, cwd: str = GENERAL_PATH, timeout: int = 600) -> tuple[bool, str, str]:
-    """
-    Запускает скрипт, парсит прогресс и возвращает (успех, краткий_вывод, полные_логи)
-    """
-    full_output = []
-    progress_lines = []
-    
+def run_script(script: str, cwd: str = GENERAL_PATH, timeout: int = 600) -> tuple[bool, str, str]:
+    """Запускает скрипт и возвращает (успех, краткий_вывод, полные_логи)"""
     try:
         result = subprocess.run(
             ["python", script],
@@ -95,35 +82,23 @@ def run_script_with_progress(script: str, cwd: str = GENERAL_PATH, timeout: int 
             env={**os.environ, "PYTHONUNBUFFERED": "1"}
         )
         
-        # Разбиваем вывод на строки
-        lines = (result.stdout + result.stderr).split('\n')
+        output = (result.stdout + result.stderr).strip()
+        full_logs = output[-2000:] if len(output) > 2000 else output
         
-        # Фильтруем строки с прогрессом
-        for line in lines:
+        # Извлекаем только итоговые строки для краткого вывода
+        brief_lines = []
+        for line in output.split('\n'):
             line = line.strip()
-            if not line:
-                continue
-            full_output.append(line)
-            # Сохраняем только "важные" строки для прогресс-бара
-            if any(kw in line.lower() for kw in ['прогресс', 'пачка', 'пакет', 'загружено', 'сохранено', '✅', '❌', '⏰']):
-                progress_lines.append(line)
+            if any(kw in line for kw in ['✅', '❌', '⏰', 'Сохранено', 'Загружено', 'Итого', 'Успешно']):
+                brief_lines.append(line)
         
-        # Формируем краткий вывод для показа в чате
-        brief = []
-        for line in progress_lines[-15:]:  # Последние 15 строк прогресса
-            if 'Прогресс:' in line or 'Пачка' in line or 'Пакет' in line:
-                brief.append(line)
-            elif line.startswith('✅') or line.startswith('❌') or line.startswith('⏰'):
-                brief.append(line)
-        
-        brief_output = '\n'.join(brief) if brief else (result.stdout[-500:] if result.stdout else "")
-        full_logs = '\n'.join(full_output[-100:])  # Последние 100 строк полных логов
+        brief = '\n'.join(brief_lines[-10:]) if brief_lines else (output[-500:] if output else "")
         
         if result.returncode == 0:
-            return True, brief_output.strip(), full_logs.strip()
+            return True, brief, full_logs
         else:
             error = result.stderr[-500:] if result.stderr else "неизвестная ошибка"
-            return False, f"❌ Ошибка: {error.strip()}", full_logs.strip()
+            return False, f"❌ Ошибка: {error.strip()}", full_logs
             
     except subprocess.TimeoutExpired:
         return False, "⏰ Превышено время выполнения (10 мин)", "⏰ TIMEOUT"
@@ -144,14 +119,60 @@ async def start(update: Update, context: ContextTypes.DEFAULT_TYPE):
         [InlineKeyboardButton("📦 MunStore", callback_data="parser_munstore")],
         [InlineKeyboardButton("📦 SupportAirlines", callback_data="parser_supportairlines")],
         [InlineKeyboardButton("🚀 ВСЕ парсеры", callback_data="parsers_all")],
+        [InlineKeyboardButton("📊 Статус", callback_data="status")],
+        [InlineKeyboardButton("📖 Справка", callback_data="help")],
     ]
     reply_markup = InlineKeyboardMarkup(keyboard)
     
     await update.message.reply_text("🤖 *Bot управления*\nВыберите проект:", reply_markup=reply_markup, parse_mode='Markdown')
 
 
+async def help_callback(update: Update, context: ContextTypes.DEFAULT_TYPE):
+    """Показывает справку"""
+    query = update.callback_query
+    await query.answer()
+    
+    if not check_user_allowed(query.from_user.id):
+        await query.edit_message_text("❌ Доступ запрещён")
+        return
+    
+    keyboard = [[InlineKeyboardButton("⬅️ Назад", callback_data="back_to_main")]]
+    reply_markup = InlineKeyboardMarkup(keyboard)
+    
+    await query.edit_message_text(HELP_TEXT, reply_markup=reply_markup, parse_mode='Markdown')
+
+
+async def status_callback(update: Update, context: ContextTypes.DEFAULT_TYPE):
+    """Показывает статус файлов"""
+    query = update.callback_query
+    await query.answer()
+    
+    if not check_user_allowed(query.from_user.id):
+        await query.edit_message_text("❌ Доступ запрещён")
+        return
+    
+    output_dir = os.path.join(GENERAL_PATH, "output")
+    files_info = []
+    
+    for filename in ["ip_mapping.csv", "mp_reports.csv", "ms_products.csv"]:
+        filepath = os.path.join(output_dir, filename)
+        if os.path.exists(filepath):
+            size_kb = os.path.getsize(filepath) / 1024
+            from datetime import datetime
+            mtime = datetime.fromtimestamp(os.path.getmtime(filepath)).strftime("%d.%m %H:%M")
+            files_info.append(f"• `{filename}`: {size_kb:.1f} KB ({mtime})")
+        else:
+            files_info.append(f"• `{filename}`: ❌ не найден")
+    
+    message = "📁 *Статус файлов GENERAL:*\n\n" + "\n".join(files_info)
+    keyboard = [[InlineKeyboardButton("⬅️ Назад", callback_data="back_to_main")]]
+    reply_markup = InlineKeyboardMarkup(keyboard)
+    
+    await query.edit_message_text(message, reply_markup=reply_markup, parse_mode='Markdown')
+
+
 async def general_menu(update: Update, context: ContextTypes.DEFAULT_TYPE):
-    """Меню GENERAL - ровно 5 кнопок"""
+    """Меню GENERAL - 5 кнопок + справка"""
     query = update.callback_query
     await query.answer()
     
@@ -172,25 +193,20 @@ async def general_menu(update: Update, context: ContextTypes.DEFAULT_TYPE):
 
 
 async def run_task(query, task_name: str, task_func, success_msg: str, task_key: str):
-    """Универсальная функция запуска задачи с прогресс-баром и логом"""
-    await query.edit_message_text(f"🔄 {task_name}...\n\n`Запуск...`", parse_mode='Markdown')
+    """Универсальная функция запуска задачи"""
+    await query.edit_message_text(f"⏳ {task_name}...\n\n_Подождите, выполняется..._", parse_mode='Markdown')
     
     success, brief, full_logs = task_func()
     
     # Сохраняем логи для кнопки просмотра
     _last_operation_logs[task_key] = full_logs
     
-    # Формируем сообщение с прогрессом
-    progress = extract_progress(brief)
-    if progress:
-        status_msg = f"{progress}\n\n"
-    else:
-        status_msg = ""
-    
     if success:
-        message = f"✅ {success_msg}\n\n{status_msg}"
+        message = f"✅ {success_msg}"
+        if brief:
+            message += f"\n\n📋 *Итог:*\n```\n{brief}\n```"
     else:
-        message = f"❌ {task_name}:\n{brief}\n\n{status_msg}"
+        message = f"❌ {task_name}:\n```\n{brief}\n```"
     
     # Кнопки: Назад + Показать логи
     keyboard = [
@@ -211,11 +227,9 @@ async def show_logs_callback(update: Update, context: ContextTypes.DEFAULT_TYPE)
         await query.edit_message_text("❌ Доступ запрещён")
         return
     
-    # Извлекаем ключ задачи из callback_data
     task_key = query.data.replace("show_logs_", "")
     logs = _last_operation_logs.get(task_key, "❌ Логи не найдены (возможно, уже очищены)")
     
-    # Форматируем логи для Telegram (код-блок, макс 4000 символов)
     logs_preview = logs[-3500:] if len(logs) > 3500 else logs
     
     message = f"📋 *Логи операции:*\n```\n{logs_preview}\n```"
@@ -251,9 +265,9 @@ async def run_ms_callback(update: Update, context: ContextTypes.DEFAULT_TYPE):
     if not check_user_allowed(query.from_user.id): return
     
     def task():
-        ok1, _, _ = run_script_with_progress("fetch_ms.py")
+        ok1, _, _ = run_script("fetch_ms.py")
         if not ok1: return False, "fetch_ms.py failed", ""
-        ok2, out2, logs2 = run_script_with_progress("import_to_sheets.py")
+        ok2, out2, logs2 = run_script("import_to_sheets.py")
         return ok2, out2, logs2
     
     await run_task(query, "Запись МС", task, "МС успешно записан в Google Sheets", "ms")
@@ -266,9 +280,9 @@ async def run_mp_callback(update: Update, context: ContextTypes.DEFAULT_TYPE):
     if not check_user_allowed(query.from_user.id): return
     
     def task():
-        ok1, _, _ = run_script_with_progress("fetch_mp.py")
+        ok1, _, _ = run_script("fetch_mp.py")
         if not ok1: return False, "fetch_mp.py failed", ""
-        ok2, out2, logs2 = run_script_with_progress("import_to_sheets.py")
+        ok2, out2, logs2 = run_script("import_to_sheets.py")
         return ok2, out2, logs2
     
     await run_task(query, "Запись МП", task, "МП успешно записан в Google Sheets", "mp")
@@ -281,11 +295,11 @@ async def run_pi_callback(update: Update, context: ContextTypes.DEFAULT_TYPE):
     if not check_user_allowed(query.from_user.id): return
     
     def task():
-        ok1, _, _ = run_script_with_progress("fetch_ip.py")
+        ok1, _, _ = run_script("fetch_ip.py")
         if not ok1: return False, "fetch_ip.py failed", ""
-        ok2, _, _ = run_script_with_progress("add_subcategories_to_ip.py")
+        ok2, _, _ = run_script("add_subcategories_to_ip.py")
         if not ok2: return False, "add_subcategories failed", ""
-        ok3, out3, logs3 = run_script_with_progress("import_to_sheets.py")
+        ok3, out3, logs3 = run_script("import_to_sheets.py")
         return ok3, out3, logs3
     
     await run_task(query, "Запись ПИ", task, "ПИ (с субкатегориями) успешно записан в Google Sheets", "pi")
@@ -299,23 +313,19 @@ async def run_all_general_callback(update: Update, context: ContextTypes.DEFAULT
     
     def task():
         all_logs = []
-        # МС
-        ok1, _, logs1 = run_script_with_progress("fetch_ms.py")
+        ok1, _, logs1 = run_script("fetch_ms.py")
         if not ok1: return False, "fetch_ms.py failed", logs1
         all_logs.append(logs1)
-        # ПИ
-        ok2, _, logs2 = run_script_with_progress("fetch_ip.py")
+        ok2, _, logs2 = run_script("fetch_ip.py")
         if not ok2: return False, "fetch_ip.py failed", logs2
         all_logs.append(logs2)
-        ok3, _, logs3 = run_script_with_progress("add_subcategories_to_ip.py")
+        ok3, _, logs3 = run_script("add_subcategories_to_ip.py")
         if not ok3: return False, "add_subcategories failed", logs3
         all_logs.append(logs3)
-        # МП
-        ok4, _, logs4 = run_script_with_progress("fetch_mp.py")
+        ok4, _, logs4 = run_script("fetch_mp.py")
         if not ok4: return False, "fetch_mp.py failed", logs4
         all_logs.append(logs4)
-        # Импорт всего
-        ok5, out5, logs5 = run_script_with_progress("import_to_sheets.py")
+        ok5, out5, logs5 = run_script("import_to_sheets.py")
         all_logs.append(logs5)
         return ok5, out5, "\n\n=== LOGS ===\n\n".join(all_logs)
     
@@ -336,7 +346,7 @@ async def run_parser_callback(update: Update, context: ContextTypes.DEFAULT_TYPE
         await query.edit_message_text("❌ Парсер не найден")
         return
     
-    await query.edit_message_text(f"🔄 Запуск {parser['name']}...\n\n`Запуск...`", parse_mode='Markdown')
+    await query.edit_message_text(f"⏳ Запуск {parser['name']}...\n\n_Подождите, выполняется..._", parse_mode='Markdown')
     
     python_path = os.path.join(parser["path"], ".venv", "bin", "python")
     script_path = os.path.join(parser["path"], parser["script"])
@@ -351,19 +361,15 @@ async def run_parser_callback(update: Update, context: ContextTypes.DEFAULT_TYPE
         )
         
         output = (result.stdout + result.stderr).strip()
-        progress = extract_progress(output)
-        brief = '\n'.join([l for l in output.split('\n')[-15:] if any(kw in l.lower() for kw in ['прогресс', 'пачка', '✅', '❌', 'сохранено'])])
-        
-        # Сохраняем логи
         _last_operation_logs[f"parser_{parser_key}"] = output[-2000:]
+        
+        brief_lines = [l for l in output.split('\n') if any(kw in l for kw in ['✅', '❌', 'Сохранено', 'Загружено', 'Итого'])]
+        brief = '\n'.join(brief_lines[-10:]) if brief_lines else output[-500:]
         
         if result.returncode == 0:
             message = f"✅ {parser['name']} завершён"
         else:
-            message = f"❌ {parser['name']}:\n{brief if brief else output[-500:]}"
-        
-        if progress:
-            message = f"{progress}\n\n{message}"
+            message = f"❌ {parser['name']}:\n```\n{brief if brief else output[-500:]}\n```"
         
     except Exception as e:
         message = f"❌ Ошибка: {str(e)}"
@@ -383,7 +389,7 @@ async def run_all_parsers_callback(update: Update, context: ContextTypes.DEFAULT
     await query.answer()
     if not check_user_allowed(query.from_user.id): return
     
-    await query.edit_message_text("🚀 Запуск ВСЕХ парсеров...")
+    await query.edit_message_text("🚀 Запуск ВСЕХ парсеров...\n\n_Подождите, выполняется..._", parse_mode='Markdown')
     
     all_logs = []
     results = []
@@ -395,15 +401,14 @@ async def run_all_parsers_callback(update: Update, context: ContextTypes.DEFAULT
             output = (result.stdout + result.stderr).strip()
             all_logs.append(f"=== {parser['name']} ===\n{output[-500:]}")
             status = "✅" if result.returncode == 0 else "❌"
-            progress = extract_progress(output)
-            results.append(f"{status} {parser['name']} {progress}")
+            results.append(f"{status} {parser['name']}")
         except Exception as e:
             results.append(f"❌ {parser['name']}: {e}")
             all_logs.append(f"=== {parser['name']} ===\nEXCEPTION: {e}")
     
     _last_operation_logs["parsers_all"] = "\n\n".join(all_logs)
     
-    message = "📦 Результаты:\n" + "\n".join(results)
+    message = "📦 *Результаты:*\n" + "\n".join(results)
     keyboard = [
         [InlineKeyboardButton("⬅️ Назад", callback_data="back_to_main")],
         [InlineKeyboardButton("📋 Показать логи", callback_data="show_logs_parsers_all")]
@@ -431,6 +436,16 @@ async def button_callback(update: Update, context: ContextTypes.DEFAULT_TYPE):
     # === Очистить логи ===
     if data.startswith("clear_logs_"):
         await clear_logs_callback(update, context)
+        return
+    
+    # === Справка ===
+    if data == "help":
+        await help_callback(update, context)
+        return
+    
+    # === Статус ===
+    if data == "status":
+        await status_callback(update, context)
         return
     
     # === GENERAL меню ===
@@ -462,6 +477,8 @@ async def button_callback(update: Update, context: ContextTypes.DEFAULT_TYPE):
             [InlineKeyboardButton("📦 MunStore", callback_data="parser_munstore")],
             [InlineKeyboardButton("📦 SupportAirlines", callback_data="parser_supportairlines")],
             [InlineKeyboardButton("🚀 ВСЕ парсеры", callback_data="parsers_all")],
+            [InlineKeyboardButton("📊 Статус", callback_data="status")],
+            [InlineKeyboardButton("📖 Справка", callback_data="help")],
         ]
         reply_markup = InlineKeyboardMarkup(keyboard)
         await query.edit_message_text("🤖 *Bot управления*\nВыберите проект:", reply_markup=reply_markup, parse_mode='Markdown')
