@@ -1,0 +1,50 @@
+# === КОНФИГУРАЦИЯ И ПАРОЛИ ===
+.env
+.env.local
+.env.*.local
+*.pem
+*.key
+credentials.json
+service_account.json
+
+# === ВИРТУАЛЬНОЕ ОКРУЖЕНИЕ ===
+venv/
+.venv/
+env/
+.env/
+*.pyc
+__pycache__/
+*.pyo
+*.pyd
+.Python
+pip-log.txt
+pip-delete-this-directory.txt
+
+# === IDE И РЕДАКТОРЫ ===
+.idea/
+.vscode/
+*.swp
+*.swo
+*~
+.DS_Store
+
+# === ЛОГИ И ДАННЫЕ ===
+*.log
+logs/
+output/*.csv
+output/*.json
+output/*.xlsx
+*.sqlite
+*.db
+
+# === ВРЕМЕННЫЕ ФАЙЛЫ ===
+tmp/
+temp/
+*.tmp
+*.bak
+*.backup
+
+# === СЕКРЕТЫ ===
+secrets/
+*.secret
+*.token
