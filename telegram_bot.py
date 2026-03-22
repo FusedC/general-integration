@@ -1,7 +1,7 @@
 #!/usr/bin/env python3
 """
-Telegram Bot для управления ВСЕМИ проектами
-5 проектов: GENERAL + 4 ТГ парсера
+Telegram Bot для управления проектами
+GENERAL + 4 ТГ парсера (каждый одной кнопкой)
 """
 import os
 import subprocess
@@ -19,50 +19,35 @@ logging.basicConfig(
 )
 logger = logging.getLogger(__name__)
 
-# ==================== СПИСОК ВСЕХ ПРОЕКТОВ ====================
-PROJECTS = {
-    "general": {
-        "name": "🔄 GENERAL (основной)",
-        "path": "/Users/samarasamara/GENERAL",
-        "scripts": [
-            ("fetch_ip.py", "📥 Выгрузка из ПИ"),
-            ("add_subcategories_to_ip.py", "🏷️ Субкатегории"),
-            ("fetch_mp.py", "📊 Выгрузка из МП"),
-            ("import_to_sheets.py", "📤 Импорт в Sheets")
-        ],
-        "use_venv": True
-    },
+# ==================== GENERAL (основной проект) ====================
+GENERAL_SCRIPTS = [
+    ("fetch_ip.py", "📥 Выгрузка из ПИ"),
+    ("add_subcategories_to_ip.py", "🏷️ Субкатегории"),
+    ("fetch_mp.py", "📊 Выгрузка из МП"),
+    ("import_to_sheets.py", "📤 Импорт в Sheets")
+]
+
+# ==================== ТГ ПАРСЕРЫ ====================
+PARSERS = {
     "amax": {
-        "name": "📦 AMAX (ТГ парсер)",
+        "name": "📦 AMAX",
         "path": "/Users/samarasamara/AMAX_to_sheets",
-        "scripts": [
-            ("telegram_parser.py", "🚀 Запустить парсер")
-        ],
-        "use_venv": True
+        "script": "telegram_parser.py"
     },
     "bsa": {
-        "name": "📦 BSA (ТГ парсер)",
+        "name": "📦 BSA",
         "path": "/Users/samarasamara/BSA_to_sheets",
-        "scripts": [
-            ("telegram_parser.py", "🚀 Запустить парсер")
-        ],
-        "use_venv": True
+        "script": "telegram_parser.py"
     },
     "munstore": {
-        "name": "📦 MunStore (ТГ парсер)",
+        "name": "📦 MunStore",
         "path": "/Users/samarasamara/MunStore_to_sheets",
-        "scripts": [
-            ("telegram_parser.py", "🚀 Запустить парсер")
-        ],
-        "use_venv": True
+        "script": "telegram_parser.py"
     },
     "supportairlines": {
-        "name": "📦 SupportAirlines (ТГ парсер)",
+        "name": "📦 SupportAirlines",
         "path": "/Users/samarasamara/SupportAirlines_to_sheets",
-        "scripts": [
-            ("telegram_parser.py", "🚀 Запустить парсер")
-        ],
-        "use_venv": True
+        "script": "telegram_parser.py"
     }
 }
 
@@ -72,26 +57,28 @@ def check_user_allowed(user_id: int) -> bool:
 
 
 async def start(update: Update, context: ContextTypes.DEFAULT_TYPE):
-    """Главное меню с кнопками проектов"""
+    """Главное меню"""
     if not check_user_allowed(update.effective_user.id):
         await update.message.reply_text("❌ Доступ запрещён")
         return
     
-    keyboard = []
-    for project_key, project_info in PROJECTS.items():
-        keyboard.append([InlineKeyboardButton(
-            project_info["name"], 
-            callback_data=f"project_{project_key}"
-        )])
-    
-    keyboard.append([InlineKeyboardButton("📊 Статус", callback_data="status")])
-    keyboard.append([InlineKeyboardButton("🔄 Запустить ВСЕ проекты", callback_data="full_all")])
+    keyboard = [
+        [InlineKeyboardButton("🔄 GENERAL (основной)", callback_data="general_menu")],
+        [InlineKeyboardButton("📦 AMAX (ТГ парсер)", callback_data="run_parser_amax")],
+        [InlineKeyboardButton("📦 BSA (ТГ парсер)", callback_data="run_parser_bsa")],
+        [InlineKeyboardButton("📦 MunStore (ТГ парсер)", callback_data="run_parser_munstore")],
+        [InlineKeyboardButton("📦 SupportAirlines (ТГ парсер)", callback_data="run_parser_supportairlines")],
+        [InlineKeyboardButton("🚀 Запустить ВСЕ парсеры", callback_data="run_all_parsers")],
+        [InlineKeyboardButton("📊 Статус", callback_data="status")]
+    ]
     
     reply_markup = InlineKeyboardMarkup(keyboard)
     
     await update.message.reply_text(
-        "🤖 *Bot управления ВСЕМИ проектами*\n\n"
-        "Выберите проект для управления:",
+        "🤖 *Bot управления проектами*\n\n"
+        "Выберите проект:\n\n"
+        "🔄 *GENERAL* — выгрузка из МС, МП, ПИ\n"
+        "📦 *Парсеры* — обновление прайсов из ТГ",
         reply_markup=reply_markup,
         parse_mode='Markdown'
     )
@@ -108,81 +95,64 @@ async def button_callback(update: Update, context: ContextTypes.DEFAULT_TYPE):
     
     data = query.data
     
-    # Меню проекта
-    if data.startswith("project_"):
-        project_key = data.replace("project_", "")
-        project = PROJECTS.get(project_key)
+    # Меню GENERAL
+    if data == "general_menu":
+        keyboard = []
+        for script_file, script_name in GENERAL_SCRIPTS:
+            keyboard.append([InlineKeyboardButton(
+                script_name,
+                callback_data=f"run_general_{script_file}"
+            )])
         
-        if project:
-            keyboard = []
-            for script_file, script_name in project["scripts"]:
-                keyboard.append([InlineKeyboardButton(
-                    script_name,
-                    callback_data=f"run_{project_key}_{script_file}"
-                )])
-            
-            keyboard.append([InlineKeyboardButton("⬅️ Назад", callback_data="start")])
-            keyboard.append([InlineKeyboardButton("🚀 Запустить всё", callback_data=f"full_{project_key}")])
-            
-            reply_markup = InlineKeyboardMarkup(keyboard)
-            
-            await query.edit_message_text(
-                f"*{project['name']}*\n\nВыберите действие:",
-                reply_markup=reply_markup,
-                parse_mode='Markdown'
-            )
+        keyboard.append([InlineKeyboardButton("⬅️ Назад", callback_data="start")])
+        keyboard.append([InlineKeyboardButton("🚀 Запустить всё", callback_data="run_general_all")])
+        
+        reply_markup = InlineKeyboardMarkup(keyboard)
+        
+        await query.edit_message_text(
+            "*🔄 GENERAL (основной проект)*\n\nВыберите действие:",
+            reply_markup=reply_markup,
+            parse_mode='Markdown'
+        )
     
-    # Запуск скрипта
-    elif data.startswith("run_"):
-        parts = data.replace("run_", "").split("_", 1)
-        if len(parts) >= 2:
-            project_key = parts[0]
-            script_file = "_".join(parts[1:])
-            project = PROJECTS.get(project_key)
-            if project:
-                await run_script_inline(query, project, script_file)
-    
-    # Полная выгрузка одного проекта
-    elif data.startswith("full_"):
-        project_key = data.replace("full_", "")
-        if project_key == "all":
-            await full_all_projects(query)
+    # Запуск скрипта GENERAL
+    elif data.startswith("run_general_"):
+        if data == "run_general_all":
+            await run_all_general_scripts(query)
         else:
-            project = PROJECTS.get(project_key)
-            if project:
-                await full_project(query, project)
+            script_file = data.replace("run_general_", "")
+            await run_general_script(query, script_file)
+    
+    # Запуск парсера
+    elif data.startswith("run_parser_"):
+        if data == "run_all_parsers":
+            await run_all_parsers(query)
+        else:
+            parser_key = data.replace("run_parser_", "")
+            parser = PARSERS.get(parser_key)
+            if parser:
+                await run_parser(query, parser)
     
     # Статус
     elif data == "status":
         await show_status(query)
     
-    # Назад в главное меню
+    # Назад
     elif data == "start":
         await start(update, context)
 
 
-async def run_script_inline(query, project: dict, script_file: str):
-    """Запускает скрипт и отправляет результат"""
+async def run_general_script(query, script_file: str):
+    """Запускает скрипт GENERAL"""
     await query.edit_message_text(f"🔄 Запуск *{script_file}*...", parse_mode='Markdown')
-    
-    project_path = project["path"]
-    use_venv = project.get("use_venv", True)
-    
-    # Формируем команду
-    if use_venv:
-        python_path = os.path.join(project_path, ".venv", "bin", "python")
-        script_path = os.path.join(project_path, script_file)
-        cmd = [python_path, script_path]
-    else:
-        cmd = ["python", script_file]
     
     try:
         result = subprocess.run(
-            cmd,
+            ["python", script_file],
             capture_output=True,
             text=True,
             timeout=600,
-            cwd=project_path
+            cwd="/Users/samarasamara/GENERAL"
         )
         
         output = result.stdout[-2000:] if result.stdout else ""
@@ -196,10 +166,8 @@ async def run_script_inline(query, project: dict, script_file: str):
             message = f"❌ *{script_file}* завершился с ошибкой\n\n"
             if error:
                 message += f"🔍 *Ошибка:*\n```\n{error.strip()}\n```"
-            elif output:
-                message += f"📋 *Вывод:*\n```\n{output.strip()}\n```"
         
-        keyboard = [[InlineKeyboardButton("⬅️ Назад", callback_data="start")]]
+        keyboard = [[InlineKeyboardButton("⬅️ Назад", callback_data="general_menu")]]
         reply_markup = InlineKeyboardMarkup(keyboard)
         
         await query.edit_message_text(message, reply_markup=reply_markup, parse_mode='Markdown')
@@ -210,80 +178,103 @@ async def run_script_inline(query, project: dict, script_file: str):
         await query.edit_message_text(f"❌ Ошибка: `{str(e)}`")
 
 
-async def full_project(query, project: dict):
-    """Запускает все скрипты проекта"""
+async def run_all_general_scripts(query):
+    """Запускает все скрипты GENERAL"""
     await query.edit_message_text(
-        f"🚀 Запуск *всех скриптов {project['name']}*...\nЭто займёт несколько минут.",
+        "🚀 Запуск *всех скриптов GENERAL*...\nЭто займёт несколько минут.",
         parse_mode='Markdown'
     )
     
-    project_path = project["path"]
-    use_venv = project.get("use_venv", True)
-    
-    for script_file, script_name in project["scripts"]:
+    for script_file, script_name in GENERAL_SCRIPTS:
         await query.message.reply_text(f"🔄 {script_name}...")
-        
-        if use_venv:
-            python_path = os.path.join(project_path, ".venv", "bin", "python")
-            script_path = os.path.join(project_path, script_file)
-            cmd = [python_path, script_path]
-        else:
-            cmd = ["python", script_file]
-        
         try:
             result = subprocess.run(
-                cmd,
+                ["python", script_file],
                 capture_output=True,
                 text=True,
                 timeout=600,
-                cwd=project_path
+                cwd="/Users/samarasamara/GENERAL"
             )
             status = "✅" if result.returncode == 0 else "❌"
             await query.message.reply_text(f"{status} {script_name}")
         except Exception as e:
             await query.message.reply_text(f"❌ {script_name}: {e}")
     
-    await query.message.reply_text(
-        f"🎉 *{project['name']} завершён!*",
-        parse_mode='Markdown'
-    )
+    await query.message.reply_text("🎉 *GENERAL завершён!*\nПроверьте Google Sheets.", parse_mode='Markdown')
 
 
-async def full_all_projects(query):
-    """Запускает все проекты"""
+async def run_parser(query, parser: dict):
+    """Запускает парсер"""
+    parser_name = parser["name"]
+    await query.edit_message_text(f"🚀 Запуск *{parser_name}*...", parse_mode='Markdown')
+    
+    project_path = parser["path"]
+    script_file = parser["script"]
+    python_path = os.path.join(project_path, ".venv", "bin", "python")
+    script_path = os.path.join(project_path, script_file)
+    
+    try:
+        result = subprocess.run(
+            [python_path, script_path],
+            capture_output=True,
+            text=True,
+            timeout=600,
+            cwd=project_path
+        )
+        
+        output = result.stdout[-2000:] if result.stdout else ""
+        error = result.stderr[-500:] if result.stderr else ""
+        
+        if result.returncode == 0:
+            message = f"✅ *{parser_name}* завершён!\n\n"
+            if output:
+                message += f"📋 *Вывод:*\n```\n{output.strip()}\n```"
+        else:
+            message = f"❌ *{parser_name}* завершился с ошибкой\n\n"
+            if error:
+                message += f"🔍 *Ошибка:*\n```\n{error.strip()}\n```"
+        
+        keyboard = [[InlineKeyboardButton("⬅️ Назад", callback_data="start")]]
+        reply_markup = InlineKeyboardMarkup(keyboard)
+        
+        await query.edit_message_text(message, reply_markup=reply_markup, parse_mode='Markdown')
+        
+    except subprocess.TimeoutExpired:
+        await query.edit_message_text(f"⏰ *{parser_name}* превысил время (10 мин)")
+    except Exception as e:
+        await query.edit_message_text(f"❌ Ошибка: `{str(e)}`")
+
+
+async def run_all_parsers(query):
+    """Запускает все парсеры"""
     await query.edit_message_text(
-        "🚀 Запуск *ВСЕХ проектов*...\nЭто займёт время.",
+        "🚀 Запуск *ВСЕХ парсеров*...\nЭто займёт время.",
         parse_mode='Markdown'
     )
     
-    for project_key, project in PROJECTS.items():
-        await query.message.reply_text(f"\n📦 *{project['name']}*")
+    for parser_key, parser in PARSERS.items():
+        parser_name = parser["name"]
+        await query.message.reply_text(f"\n🔄 {parser_name}...")
         
-        project_path = project["path"]
-        use_venv = project.get("use_venv", True)
+        project_path = parser["path"]
+        script_file = parser["script"]
+        python_path = os.path.join(project_path, ".venv", "bin", "python")
+        script_path = os.path.join(project_path, script_file)
         
-        for script_file, script_name in project["scripts"]:
-            if use_venv:
-                python_path = os.path.join(project_path, ".venv", "bin", "python")
-                script_path = os.path.join(project_path, script_file)
-                cmd = [python_path, script_path]
-            else:
-                cmd = ["python", script_file]
-            
-            try:
-                result = subprocess.run(
-                    cmd,
-                    capture_output=True,
-                    text=True,
-                    timeout=600,
-                    cwd=project_path
-                )
-                status = "✅" if result.returncode == 0 else "❌"
-                await query.message.reply_text(f"{status} {script_name}")
-            except Exception as e:
-                await query.message.reply_text(f"❌ {script_name}: {e}")
+        try:
+            result = subprocess.run(
+                [python_path, script_path],
+                capture_output=True,
+                text=True,
+                timeout=600,
+                cwd=project_path
+            )
+            status = "✅" if result.returncode == 0 else "❌"
+            await query.message.reply_text(f"{status} {parser_name}")
+        except Exception as e:
+            await query.message.reply_text(f"❌ {parser_name}: {e}")
     
-    await query.message.reply_text("🎉 *ВСЕ проекты завершены!*", parse_mode='Markdown')
+    await query.message.reply_text("🎉 *ВСЕ парсеры завершены!*", parse_mode='Markdown')
 
 
 async def show_status(query):
@@ -323,9 +314,8 @@ def main():
     app.add_handler(CallbackQueryHandler(button_callback))
     
     print("✅ Бот запущен! Ожидаю команды...")
-    print(f"📋 Доступно проектов: {len(PROJECTS)}")
-    for key, proj in PROJECTS.items():
-        print(f"   • {proj['name']}")
+    print(f"📋 GENERAL скриптов: {len(GENERAL_SCRIPTS)}")
+    print(f"📦 Парсеров: {len(PARSERS)}")
     
     app.run_polling(allowed_updates=Update.ALL_TYPES)
 
