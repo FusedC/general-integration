@@ -1,48 +1,60 @@
-name: Daily Data Fetch
+name: Daily Fetch
 
 on:
   schedule:
-    - cron: '0 9 * * *'
-  workflow_dispatch:
+    - cron: '0 9 * * *'   # 9:00 UTC
+    - cron: '0 18 * * *'  # 18:00 UTC
+  workflow_dispatch:      # ← Позволяет запуск вручную из UI
+    inputs:
+      parser:
+        description: 'Имя парсера (или "all")'
+        required: false
+        default: 'all'
+        type: choice
+        options:
+          - all
+          - fetch_ip
+          - fetch_ms
+          - fetch_mp
+          - fetch_amax
+          - fetch_bsa
+          - fetch_munstore
+          - fetch_supportairlines
 
 jobs:
   fetch:
     runs-on: ubuntu-latest
-    
     steps:
-    - uses: actions/checkout@v3
-    
-    - name: Set up Python
-      uses: actions/setup-python@v4
-      with:
-        python-version: '3.9'
-    
-    - name: Install dependencies
-      run: pip install -r requirements.txt
-    
-    - name: Create credentials.json
-      run: |
-        echo "${{ secrets.GOOGLE_CREDENTIALS_BASE64 }}" | base64 -d > credentials.json
-        chmod 600 credentials.json
-    
-    - name: Run fetch scripts
-      env:
-        MS_TOKEN: ${{ secrets.MS_TOKEN }}
-        MP_API_KEY: ${{ secrets.MP_API_KEY }}
-        IP_API_URL: ${{ secrets.IP_API_URL }}
-        IP_API_USER: ${{ secrets.IP_API_USER }}
-        IP_API_PASS: ${{ secrets.IP_API_PASS }}
-        GOOGLE_SHEET_ID: ${{ secrets.GOOGLE_SHEET_ID }}
-      run: |
-        python fetch_ip.py
-        python add_subcategories_to_ip.py
-        python fetch_mp.py
-        python fetch_ms.py
-        python import_to_sheets.py
-    
-    - name: Upload output
-      uses: actions/upload-artifact@v4
-      with:
-        name: output-data
-        path: output/
-        retention-days: 7
+      - uses: actions/checkout@v4
+      
+      - name: Set up Python
+        uses: actions/setup-python@v4
+        with:
+          python-version: '3.9'
+          
+      - name: Install dependencies
+        run: |
+          pip install -r requirements.txt
+          
+      - name: Run selected parser
+        env:
+          MS_TOKEN: ${{ secrets.MS_TOKEN }}
+          MP_API_KEY: ${{ secrets.MP_API_KEY }}
+          IP_API_URL: ${{ secrets.IP_API_URL }}
+          IP_API_USER: ${{ secrets.IP_API_USER }}
+          IP_API_PASS: ${{ secrets.IP_API_PASS }}
+          GOOGLE_SHEET_ID: ${{ secrets.GOOGLE_SHEET_ID }}
+          GOOGLE_CREDENTIALS: ${{ secrets.GOOGLE_CREDENTIALS }}
+        run: |
+          PARSER="${{ github.event.inputs.parser }}"
+          if [ "$PARSER" = "all" ] || [ -z "$PARSER" ]; then
+            echo "🔄 Запуск всех парсеров..."
+            python fetch_ip.py && python fetch_ms.py && python fetch_mp.py
+            python fetch_amax.py && python fetch_bsa.py
+            python fetch_munstore.py && python fetch_supportairlines.py
+          else
+            echo "🎯 Запуск парсера: $PARSER"
+            python ${PARSER}.py
+          fi
+          echo "📊 Генерация дашборда..."
+          python generate_dashboard.py
